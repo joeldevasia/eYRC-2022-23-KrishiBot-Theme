@@ -1,0 +1,212 @@
+#! /usr/bin/env python3
+
+'''
+*****************************************************************************************
+*
+*        		===============================================
+*           		Krishi Bot (KB) Theme (eYRC 2022-23)
+*        		===============================================
+*
+*  This script is to implement Task 2.2 of Krishi Bot (KB) Theme (eYRC 2022-23).
+*  
+*  This software is made available on an "AS IS WHERE IS BASIS".
+*  Licensee/end user indemnifies and will keep e-Yantra indemnified from
+*  any and all claim(s) that emanate from the use of the Software or 
+*  breach of the terms of this agreement.
+*
+*****************************************************************************************
+'''
+
+# Team ID:			[ 2546 ]
+# Author List:		[ Joel devasia, Vyomkesh Mulam, Priya Jain, Tanmay Mohod]
+# Filename:			percepStack.py
+# Functions:		
+# 					[ img_clbck, depth_clbck, image_processing, main ]
+
+
+####################### IMPORT MODULES #######################
+import cv2 
+import rospy
+from cv_bridge import CvBridge, CvBridgeError
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+import numpy as np
+# You can add more if required
+##############################################################
+
+
+# Initialize Global variables
+pub_rgb = rospy.Publisher('/center_rgb', String, queue_size = 1)
+pub_depth = rospy.Publisher('/center_depth', String, queue_size = 1)
+bridge = CvBridge()
+pose = []
+
+################# ADD UTILITY FUNCTIONS HERE #################
+
+##############################################################
+
+
+def img_clbck(img_msg):
+
+    '''
+    Callback Function for RGB image topic
+
+    Purpose:
+    -----
+    Convert the image in a cv2 format and then pass it 
+    to image_processing function by saving to the 
+    'image' variable.
+
+    Input Args:
+    -----
+    img_msg: Callback message.
+    '''
+
+    global pub_rgb #, add global variable if any
+    global pose
+
+    ############################### Add your code here #######################################
+    image = bridge.imgmsg_to_cv2(img_msg, 'bgr8')
+    ##########################################################################################
+    pose = image_processing(image)
+    pub_rgb.publish(str(pose))
+
+def depth_clbck(depth_msg):
+    '''
+    Callback Function for Depth image topic
+
+    Purpose:
+	--- 
+    1. Find the depth value of the centroid pixel returned by the
+    image_processing() function.
+    2. Publish the depth value to the topic '/center_depth'
+
+
+    NOTE: the shape of depth and rgb image is different. 
+    
+    Input Args:
+    -----
+    depth_msg: Callback message.
+    '''
+    depth_val = []
+
+    ############################### Add your code here #######################################
+    depth = bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
+    depth = cv2.resize(depth, (1280, 720))
+    for i in range(len(pose)):
+        depth_val.append(depth[pose[i][1], pose[i][0]]/1000)
+    global pub_depth
+    ##########################################################################################
+    pub_depth.publish(str(depth_val))
+
+
+def image_processing(image):
+    '''
+    NOTE: Do not modify the function name and return value.
+          Only do the changes in the specified portion for this
+          function.
+          Use cv2.imshow() for debugging but make sure to REMOVE it before submitting.
+    
+    1. Find the centroid of the bell pepper(s).
+    2. Add the x and y values of the centroid to a list.  
+    3. Then append this list to the pose variable.
+    3. If multiple fruits are found then append to pose variable multiple times.
+
+    Input Args:
+    ------
+    image: Converted image in cv2 format.
+
+    Example:
+    ----
+    pose = [[x1, y1] , [x2, y2] ...... ]
+    '''
+    pose = []
+    ############### Write Your code to find centroid of the bell peppers #####################
+    blur = cv2.GaussianBlur(image, (5, 5), 0)
+    hsvImage = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+    yellow_lower = np.array([11, 135, 105], np.uint8)
+    yellow_upper = np.array([24, 255, 255], np.uint8)
+
+    red_lower = np.array([93, 159, 93], np.uint8)
+    red_upper = np.array([179, 255, 255], np.uint8)
+
+    # Threshold the HSV image to get only yellow colors
+    yellow_mask = cv2.inRange(hsvImage, yellow_lower, yellow_upper)
+    red_mask = cv2.inRange(hsvImage, red_lower, red_upper)
+    newMask = yellow_mask | red_mask
+
+    #define kernel size  
+    kernel = np.ones((7,7),np.uint8)
+
+    # Remove unnecessary noise from mask
+    newMask = cv2.morphologyEx(newMask, cv2.MORPH_CLOSE, kernel)
+    newMask = cv2.morphologyEx(newMask, cv2.MORPH_OPEN, kernel)
+
+    # Find contours from the mask
+    contours, hierarchy = cv2.findContours(newMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # loop over the contours
+    for c in contours:
+        if cv2.contourArea(c) > 1000:
+            # compute the center of the contour
+            M = cv2.moments(c)
+            cX = int(M["m10"] / M["m00"])
+            cY = int(M["m01"] / M["m00"])
+
+            pose.append([cX, cY])
+            # draw the contour and center of the shape on the image
+            # output = cv2.drawContours(image, [c], -1, (0, 255, 0), 2)
+            # output = cv2.circle(image, (cX, cY), 7, (255, 255, 255), -1)
+            # output = cv2.putText(image, "center", (cX - 20, cY - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+            # cv2.imshow("new mask", output)
+            # if cv2.waitKey(1) & 0xFF == ord(' '):
+            #     break
+
+    ##########################################################################################
+    return pose
+
+
+
+def main():
+    '''
+    MAIN FUNCTION
+
+    Purpose:
+    -----
+    Initialize ROS node and do the publish and subscription of data.
+
+    NOTE: We have done the subscription only for one image, you have to iterate over 
+    three images in the same script and publish the centroid and depth in the 
+    same script for three images, calling the same callback function.
+
+    '''
+
+    #### EDIT YOUR CODE HERE FOR SUBSCRIBING TO OTHER TOPICS AND TO APPLY YOUR ALGORITHM TO PUBLISH #####
+
+    rospy.init_node("percepStack", anonymous=True)
+
+    sub_image_color_1 = rospy.Subscriber("/device_0/sensor_1/Color_0/image/data_1", Image, img_clbck)
+    sub_image_depth_1 = rospy.Subscriber("/device_0/sensor_0/Depth_0/image/data_1", Image, depth_clbck)
+
+    sub_image_color_2 = rospy.Subscriber("/device_0/sensor_1/Color_0/image/data_2", Image, img_clbck)
+    sub_image_depth_2 = rospy.Subscriber("/device_0/sensor_0/Depth_0/image/data_2", Image, depth_clbck)
+
+    sub_image_color_3 = rospy.Subscriber("/device_0/sensor_1/Color_0/image/data_3", Image, img_clbck)
+    sub_image_depth_3 = rospy.Subscriber("/device_0/sensor_0/Depth_0/image/data_3", Image, depth_clbck)
+
+    global pub_rgb
+    pub_rgb = rospy.Publisher('/center_rgb', String, queue_size = 1)
+    global pub_depth
+    pub_depth = rospy.Publisher('/center_depth', String, queue_size = 1)
+
+    ####################################################################################################
+    rospy.spin()
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        print("Error:", str(e))
+    finally:
+        print("Executed Perception Stack Script")
